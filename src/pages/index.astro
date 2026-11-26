@@ -1,16 +1,47 @@
 ---
----
+import { parseDiary, type Section } from '../lib/parseDiary';
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+const files = import.meta.glob<string>('../diary/*.txt', {
+  query: '?raw', import: 'default', eager: true,
+});
+
+const sections = Object.entries(files).flatMap(([path, text]) => {
+  const year = Number(path.match(/(\d{4})[^/]*\.txt$/)![1]);
+  return parseDiary(text, year);
+});
+
+const days = new Map<string, Section[]>();
+for (const s of sections) days.set(s.date, [...(days.get(s.date) ?? []), s]);
+const sorted = [...days].sort(([a], [b]) => b.localeCompare(a));
+
+const URL_RE = /(https?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+)/;
+---
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>日報</title>
+    <style>
+      body { max-width: 720px; margin: 0 auto; padding: 16px; line-height: 1.8; }
+      .body { white-space: pre-wrap; }
+      a { word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <h1>日報</h1>
+    {sorted.map(([date, secs]) => (
+      <article>
+        <h2>{date}</h2>
+        {secs.map((s) => (
+          <section>
+            <h3>{s.title}</h3>
+            <p class="body">
+              {s.body.split(URL_RE).map((part, i) =>
+                i % 2 ? <a href={part}>{part}</a> : part)}
+            </p>
+          </section>
+        ))}
+      </article>
+    ))}
+  </body>
 </html>
