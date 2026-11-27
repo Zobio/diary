@@ -1,6 +1,11 @@
 ---
 import { parseDiary, type Section } from '../lib/parseDiary';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import DiaryFilter from '../components/DiaryFilter';
 
+// 日記ファイルを読み込み
 const files = import.meta.glob<string>('../diary/*.txt', {
   query: '?raw', import: 'default', eager: true,
 });
@@ -10,8 +15,25 @@ const sections = Object.entries(files).flatMap(([path, text]) => {
   return parseDiary(text, year);
 });
 
-const days = new Map<string, Section[]>();
-for (const s of sections) days.set(s.date, [...(days.get(s.date) ?? []), s]);
+// categories.jsonを読み込み
+const categoriesPath = join(process.cwd(), 'categories.json');
+const categoriesData = JSON.parse(readFileSync(categoriesPath, 'utf8'));
+const classifications = categoriesData.classifications;
+const categoryList = categoriesData.categories;
+
+// 各節にカテゴリ情報を付与
+type SectionWithCategory = Section & { category: string };
+const sectionsWithCategory: SectionWithCategory[] = sections.map(s => {
+  const hash = createHash('sha256').update(`${s.title}\n${s.body}`, 'utf8').digest('hex');
+  const category = classifications[hash] || 'その他';
+  return { ...s, category };
+});
+
+// 日付ごとにグループ化
+const days = new Map<string, SectionWithCategory[]>();
+for (const s of sectionsWithCategory) {
+  days.set(s.date, [...(days.get(s.date) ?? []), s]);
+}
 const sorted = [...days].sort(([a], [b]) => b.localeCompare(a));
 
 const URL_RE = /(https?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+)/;
@@ -25,16 +47,24 @@ const URL_RE = /(https?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+)/;
       body { max-width: 720px; margin: 0 auto; padding: 16px; line-height: 1.8; }
       .body { white-space: pre-wrap; }
       a { word-break: break-all; }
+      .category-tag { font-size: 0.7em; color: #aaa; margin-left: 8px; font-weight: normal; }
+      .category-tag:hover { color: #666; }
     </style>
   </head>
   <body>
     <h1>日報</h1>
+
+    <DiaryFilter categories={categoryList} client:load />
+
     {sorted.map(([date, secs]) => (
-      <article>
+      <article data-date={date}>
         <h2>{date}</h2>
         {secs.map((s) => (
-          <section>
-            <h3>{s.title}</h3>
+          <section data-category={s.category}>
+            <h3>
+              {s.title}
+              <span class="category-tag">#{s.category}</span>
+            </h3>
             <p class="body">
               {s.body.split(URL_RE).map((part, i) =>
                 i % 2 ? <a href={part}>{part}</a> : part)}
